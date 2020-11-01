@@ -6,4 +6,5 @@ This repository contains the submission for the Practical Machine Learning Cours
 The submission includes a Project.Rmd file and Project.html file.
 
 It can be accessed via this link instead:
-https://htmlpreview.github.io/?https://github.com/Sandrobike/PgA_machine_learning.git
+http://htmlpreview.github.io/?https://github.com/Sandrobike/PgA_machine_learning/blob/master/PgA_ML_Human-activity-recognition.html
+
