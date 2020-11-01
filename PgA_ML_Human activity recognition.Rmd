@@ -14,7 +14,7 @@ knitr::opts_chunk$set(echo = TRUE)
 The goal of this project is to predict the manner in which some people did an exercise. 
 
 ## Data input and cleaning
-The input data are downloded and loaded in the two data frame d_train and d_test
+The input data are downloded and loaded in the two data frame 'd_train' and 'd_test'
 ```{r eval=TRUE}
 fileUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
 download.file(fileUrl, destfile = "./training.csv", method = "curl")
@@ -23,6 +23,12 @@ d_train <- read.csv("training.csv")
 fileUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
 download.file(fileUrl, destfile = "./testing.csv", method = "curl")
 d_test <- read.csv("testing.csv")
+```
+The first columns of the data set seems to be potential counfounders, especially X is a progressive number that could be strongly correlated with 
+the outcome without to be a causal variable. So the first 6 colums are eliminated.
+```{r}
+d_train <- d_train[,-(1:6)]
+d_test <- d_test[ , -(1:6)]
 ```
 the training set appear to be full of missing data and many numeric column have been converted in factors because a division by zero made the character string #DIV/0! to be included.
 
@@ -54,9 +60,9 @@ sub_train <- sub_train[complete.cases(sub_train),]
 sub_train <- sub_train[,(apply(sub_train, 2, function(x) !(length(unique(x)) == 1)))]
 dim(sub_train)
 ```
-It's worth noting that now the data set dimension reduced a lot the observations from 19622 to 217 with a small reduction in the variable numbers from 160 to 150. A similar operation is performed on the d_test data set obtaining 'sub_test' data set.
+It's worth noting that now the data set dimension reduced a lot the observations from 19622 to 217 with a small reduction in the variable numbers from 160 to 145. A similar operation is performed on the d_test data set obtaining 'sub_test' data set.
 ```{r}
-sub_test <- d_test[,names(sub_train[,1:149])]
+sub_test <- d_test[,names(sub_train[,1:144])]
 # all NA are replaced with 0 
 for (i in 1:length(sub_test[1,])) {
     if (NA %in% sub_test[,i]) {
@@ -79,47 +85,86 @@ comp_train <- comp_train[,apply(comp_train, 2, function(x) !all(x == ""))]
 comp_train <- comp_train[,apply(comp_train, 2, function(x) !(length(unique(x)) == 1))]
 dim(comp_train)
 # This is the correspondent data set for test
-comp_test <- d_test[,names(comp_train[,1:58])]
+comp_test <- d_test[,names(comp_train[,1:53])]
 ```
-Now in this subset we have many observation (19216) but very few variables (59).
+Now in this subset we have many observation (19216) but very few variables (54).
 However they are now two clean data set and I processed both to select later the better strategy.
 
-### Prediction (Bagging)
+Concerning the predition algorithms, I tested many methods but, for sake of simplicity, I reports only two cases:
 
-I tested many method but, for sake of simplicity, I reports only the best tradeoff in terms of accuracy and exceution time. I selected the Bagging method.\\
+- a classification tree based on the principal component analysis prepocessing with 6 different levels of complexity.
+
+- the best tradeoff I found in terms of accuracy and exceution time, that is the bagging algorithm based on "treebag" method
+
+### Prediction (Classification tree "rpart" with PCA preprocessing)
+
 The cross validation is performed by the trainControl() function setting 10 folds with the default partition of p = 75%.
 Both sub data sets 'comp_train' and 'sub_train' have been processed.
-Observation (obs) and prediction (pred) from the cross validation process are available from the model with the field 'pred' (see below the code for 'predsubt').
-This is based on the first strategy data set 'sub_train' (all possible variables)
 
 ```{r}
 library(caret)
+pca_set <- c(2,3,5,10,15,20)
+accuracy_c <- rep(0,6)
+accuracy_s <- rep(0,6)
 trCo <- trainControl(method = "cv",savePredictions = T,number = 10)
+for ( i in 1:6) {
+    set.seed(123)
+    preproc <- preProcess(comp_train[,-54], method = "pca", pcaComp = pca_set[i])
+    comp_trainPC <- predict(preproc,comp_train[,-54])
+    comp_trainPC <- cbind(comp_trainPC,classe = comp_train$classe)
+    modcomp5 <- train(classe ~ ., method = "rpart", data = comp_trainPC,
+                      trControl = trCo)
+
+    accuracy_c[i] <- modcomp5$result[modcomp5$result$cp==modcomp5$bestTune[1,1],2]
+
+    set.seed(123)
+    preproc <- preProcess(sub_train[,-145], method = "pca", 
+                          pcaComp = pca_set[i])
+    sub_trainPC <- predict(preproc,sub_train[,-145])
+    sub_trainPC <- cbind(sub_trainPC,classe = sub_train$classe)
+    modsub5 <- train(classe ~ ., method = "rpart", data = sub_trainPC,
+                     trControl = trCo)
+    accuracy_s[i] <- modsub5$result[modsub5$result$cp==modsub5$bestTune[1,1],2]
+}
+plot(pca_set,accuracy_c,type = "b", lty=2, ylim = c(0.2,0.5),
+     ylab = "Accuracy",
+     xlab = "PC number", pch=19)
+lines(pca_set,accuracy_s,type = "b", lty=3, pch= 13)
+legend(12,0.32, c("Acc_comp","Acc_sub"), pch = c(19,13))
+```
+From the figure we can see that the accuracy related to the first data cleaning strategy, (Acc_sub <-> all possible variables), becomes better for principal components equal or greater than 5 but in both cases the accuracy doesn't improve for PC > 10. In any case the accuracy doesn't reach a satisfactory level.
+
+### Prediction (Bagging)
+
+The cross validation is always performed by the trainControl(), furthermore setting the option savePredictions = T, observations (obs) and predictions (pred) from the cross validation process are available from the model with the field 'pred' (see below the code for 'predsubt').
+This is based on the first strategy data set 'sub_train' (all possible variables)
+
+```{r}
+trCo <- trainControl(method = "cv",savePredictions = T,number = 10)
+set.seed(123)
 modsub3 <- train(classe ~ ., method = "treebag", data = sub_train,
                  trControl = trCo)
 modsub3
 predsubt <- modsub3$pred
 confusionMatrix(predsubt$pred,predsubt$obs)
 ````
-The accuracy level seems very good (0.9862) and, as we can see from the confusion matrix, only 3 cases are wrong over 217.
-Let's see the behaviour related to the second strategy (all possible observations)
+The accuracy level seems better than before but let's see the behaviour related to the second strategy (all possible observations)
 ```{r}
+set.seed(123)
 modcomp3 <- train(classe ~ ., method = "treebag", data = comp_train,
                   trControl = trCo)
 modcomp3
 predcompt <- modcomp3$pred
 confusionMatrix(predcompt$pred,predcompt$obs)
 ````
-These results are at least  almost two order of magnitude better than the previous case! The accuracy is = 0.9998 and there are still 3 cases wrong but over 19216 observations. Finally in this case even if many information types have been removed, the big amount of observations seems to highly overcompensate this lack.
+These results are much better than the previous case! The accuracy is = 0.996 even if the variales are ony 54 (rather than 145).  In this case even if many information types have been removed, the big amount of observations seems to highly overcompensate this lack.
 
 ## Testing 
 
-Finally the above two model have been used to predict the outcomes with the test data set properly adjusted for the two subset: 'sub_test' and 'comp_test'
-As we can see from the prediction results both models agree on the fact that all exercises have been executed correctly (A outcome) in all 20 cases.
+Finally the prediction for the testing data set (sub_test) has been used to predict the outcomes.
+
 
 ```{r}
-print("Result prediction with treebag model based on data set sub_test")
-predict(modsub3, sub_test)
 
 print("Result prediction with treebag model based on data set comp_test")
 predict(modcomp3,comp_test)
